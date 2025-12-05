@@ -1,0 +1,129 @@
+{
+    "file_paths": {
+        "courses_csv": "2025W_normalized.csv",
+        "patterns_json": "schedule_patterns.json"
+    },
+    "constraints": {
+        "mandatory_nos": [],
+        "excluded_nos": [
+            "HPE",
+            "JLP",
+            "QAMT",
+            "GSS101",
+            "PHY242"
+        ],
+        "desired_nos": [],
+        "min_credits": 16,
+        "max_credits": 18,
+        "off_days": [
+            "土",
+            "日"
+        ],
+        "unavailable_slots": [
+            {
+                "day": "月",
+                "period": 1
+            },
+            {
+                "day": "月",
+                "period": 5
+            },
+            {
+                "day": "月",
+                "period": 6
+            },
+            {
+                "day": "月",
+                "period": 7
+            },
+            {
+                "day": "火",
+                "period": 1
+            },
+            {
+                "day": "火",
+                "period": 5
+            },
+            {
+                "day": "火",
+                "period": 6
+            },
+            {
+                "day": "火",
+                "period": 7
+            },
+            {
+                "day": "水",
+                "period": 1
+            },
+            {
+                "day": "水",
+                "period": 5
+            },
+            {
+                "day": "水",
+                "period": 6
+            },
+            {
+                "day": "水",
+                "period": 7
+            },
+            {
+                "day": "木",
+                "period": 1
+            },
+            {
+                "day": "木",
+                "period": 5
+            },
+            {
+                "day": "木",
+                "period": 6
+            },
+            {
+                "day": "木",
+                "period": 7
+            },
+            {
+                "day": "金",
+                "period": 1
+            },
+            {
+                "day": "金",
+                "period": 5
+            },
+            {
+                "day": "金",
+                "period": 6
+            },
+            {
+                "day": "金",
+                "period": 7
+            }
+        ]
+    },
+    "optimizer_settings": {
+        "priority_subjects": [
+            "PHY"
+        ],
+        "level_priorities": {
+            "MTH": 200,
+            "PHY": 200
+        },
+        "temperature": 50,
+        "max_candidates": 10,
+        "course_level_constraints": {
+            "major_subjects": {
+                "codes": [
+                    "PHY"
+                ],
+                "min_level": 200,
+                "max_level": 300
+            },
+            "other_subjects": {
+                "min_level": 0,
+                "max_level": 100
+            }
+        }
+    }
+}
