@@ -711,7 +711,7 @@ def load_json_file(filepath: str) -> Dict:
 
 def main():
     SETTINGS_PATH = 'user_settings.json'
-    PERIOD_PATH = 'period_times.json'
+    PERIOD_PATH = 'data/period_times.json'
     
     settings = load_json_file(SETTINGS_PATH)
     if not settings:

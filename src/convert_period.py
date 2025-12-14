@@ -110,4 +110,4 @@ def convert_csv_to_json(csv_path, output_path):
         return False
 
 if __name__ == "__main__":
-    convert_csv_to_json('period.csv', 'period_times.json')
+    convert_csv_to_json('data/period.csv', 'data/period_times.json')

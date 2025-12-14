@@ -122,12 +122,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Normalize 2025W course CSV.")
     parser.add_argument(
         "--input",
-        default="2025W - Sheet1.csv",
+        default="data/2025W - Sheet1.csv",
         help="path to original CSV (default: %(default)s)",
     )
     parser.add_argument(
         "--output",
-        default="2025W_normalized.csv",
+        default="data/2025W_normalized.csv",
         help="path to write normalized CSV (default: %(default)s)",
     )
     args = parser.parse_args()

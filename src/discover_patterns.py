@@ -87,10 +87,10 @@ def discover_and_save_patterns(csv_path: str, output_path: str):
 
 
 if __name__ == '__main__':
-    # このスクリプトが存在するディレクトリを基準にする
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # このスクリプトが存在するディレクトリの親のdataディレクトリを基準にする
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
-    CSV_FILE_PATH = os.path.join(base_dir, '2025W_normalized.csv')
-    OUTPUT_JSON_PATH = os.path.join(base_dir, 'schedule_patterns.json')
+    CSV_FILE_PATH = os.path.join(base_dir, 'data', '2025W_normalized.csv')
+    OUTPUT_JSON_PATH = os.path.join(base_dir, 'data', 'schedule_patterns.json')
     
     discover_and_save_patterns(CSV_FILE_PATH, OUTPUT_JSON_PATH)

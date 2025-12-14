@@ -29,17 +29,22 @@
 
 ```
 .
-├── 2025W - Sheet1.csv       # (入力) 大学から提供された元の授業データ (※リポジトリには含まれません)
-├── 2025W_normalized.csv     # (生成) normalize_courses.py によって生成される整形済みデータ
-├── schedule_patterns.json   # (生成) discover_patterns.py によって生成される時間割パターン
-├── period_times.json        # (生成) convert_period.py によって生成される時間割定義データ
-├── user_settings.json       # (設定) ユーザーが記述する履修制約設定ファイル
-├── requirements.txt         # (情報) 依存関係に関する情報
-├── normalize_courses.py     # (スクリプト) データ整形用
-├── discover_patterns.py     # (スクリプト) パターン抽出用
-├── convert_period.py        # (スクリプト) 時間割定義のCSV→JSON変換用
-├── export_calendar.py       # (スクリプト) カレンダー(.ics)生成用 (単体使用も可)
-├── optimize_courses.py      # (スクリプト) 履修最適化メインプログラム
+├── src/                     # Pythonスクリプト
+│   ├── normalize_courses.py
+│   ├── discover_patterns.py
+│   ├── convert_period.py
+│   └── optimize_courses.py
+├── data/                    # データファイル
+│   ├── 2025W - Sheet1.csv   # (入力) 大学からの元データ
+│   ├── 2025W_normalized.csv # (生成) 正規化データ
+│   ├── schedule_patterns.json # (生成) パターンデータ
+│   ├── period.csv           # (入力) 時間割定義
+│   └── period_times.json    # (生成) 時間割JSON
+├── output/                  # 生成物
+│   └── my_schedule.ics      # (生成) CSファイル
+├── logs/                    # ログファイル
+├── user_settings.json       # 設定ファイル
+├── requirements.txt         # 依存関係
 └── README.md                # 本ドキュメント
 ```
 
@@ -85,20 +90,20 @@
 
 ```bash
 # 授業データの整形
-python normalize_courses.py
+python src/normalize_courses.py
 
 # 時間割パターンの抽出
-python discover_patterns.py
+python src/discover_patterns.py
 
 # 時間割定義(period.csv)のJSON変換
-python convert_period.py
+python src/convert_period.py
 ```
 
 #### Step 2: 最適化の実行と編集
 設定ファイルに基づき、最適な時間割候補を生成して表示します。
 
 ```bash
-python optimize_courses.py
+python src/optimize_courses.py
 ```
 
 実行すると、複数の候補が表示された後、対話モードになります。
