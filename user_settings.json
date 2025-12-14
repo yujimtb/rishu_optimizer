@@ -4,7 +4,12 @@
         "patterns_json": "schedule_patterns.json"
     },
     "constraints": {
-        "mandatory_nos": [],
+        "mandatory_nos": [
+            "ELA060",
+            "PHY261",
+            "PHR112",
+            "ENV102"
+        ],
         "excluded_nos": [
             "HPE",
             "JLP",
@@ -13,8 +18,8 @@
             "PHY242"
         ],
         "desired_nos": [],
-        "min_credits": 16,
-        "max_credits": 18,
+        "min_credits": 10,
+        "max_credits": 12,
         "off_days": [
             "土",
             "日"
@@ -115,7 +120,8 @@
         "course_level_constraints": {
             "major_subjects": {
                 "codes": [
-                    "PHY"
+                    "PHY",
+                    "ISC"
                 ],
                 "min_level": 200,
                 "max_level": 300

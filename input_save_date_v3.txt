@@ -1,0 +1,8 @@
+select 1
+save
+timetable.ics
+1
+2025-04-01
+2025-07-20
+q
+q
