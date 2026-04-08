@@ -106,7 +106,17 @@ class PatternBasedOptimizer:
         self.max_credits = self.constraints.get('max_credits')
         self.min_credits = self.constraints.get('min_credits')
         self.desired_nos = set(self.constraints.get('desired_nos'))
-        self.unavailable_slots = {tuple(s) for s in self.constraints.get('unavailable_slots', [])}
+        self.unavailable_slots = set()
+        for slot in self.constraints.get('unavailable_slots', []):
+            if isinstance(slot, dict):
+                day = slot.get('day')
+                period = slot.get('period')
+                if day and isinstance(period, int):
+                    self.unavailable_slots.add((day, period))
+            elif isinstance(slot, (list, tuple)) and len(slot) == 2:
+                day, period = slot
+                if day and isinstance(period, int):
+                    self.unavailable_slots.add((day, period))
         
         self.temperature = self.optimizer_settings.get('temperature')
         self.max_candidates = self.optimizer_settings.get('max_candidates')
@@ -181,6 +191,15 @@ class PatternBasedOptimizer:
         if not unique_candidates:
             print("候補を生成できませんでした。")
             return
+
+        unique_candidates.sort(
+            key=lambda timetable: (
+                sum(course.credits for course in timetable),
+                -len(timetable),
+                tuple(sorted(course.no for course in timetable)),
+            ),
+            reverse=True,
+        )
 
         self._display_results(unique_candidates)
         self._interactive_mode(unique_candidates)
@@ -323,11 +342,23 @@ class PatternBasedOptimizer:
 
     def _export_to_ics(self, timetable: List[Course]):
         """ICS出力処理"""
-        filename = input("出力ファイル名 (default: my_schedule.ics): ").strip()
+        # 学期コンテキストからデフォルト値を取得
+        ctx = self.settings.get('_semester_context')
+
+        default_filename = "my_schedule.ics"
+        if ctx:
+            default_filename = f"output/{ctx.semester_id}_schedule.ics"
+
+        filename = input(f"出力ファイル名 (default: {default_filename}): ").strip()
         if not filename:
-            filename = "my_schedule.ics"
+            filename = default_filename
         if not filename.endswith('.ics'):
             filename += ".ics"
+
+        # 出力ディレクトリの作成
+        from pathlib import Path
+        out_path = Path(filename)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
 
         print("カレンダーの種類を選択してください:")
         print("1. 平常 (Regular)")
@@ -335,10 +366,14 @@ class PatternBasedOptimizer:
         type_choice = input("> ").strip()
         schedule_type = "christian_week" if type_choice == "2" else "regular"
 
-        # 開始日の設定
-        today = datetime.date.today()
-        # 次の月曜日をデフォルトに
-        default_start = today + datetime.timedelta(days=(7 - today.weekday()))
+        # 開始日・終了日の設定 (学期コンテキストがあればそのデフォルトを使用)
+        if ctx:
+            default_start, default_end = ctx.default_term_dates()
+        else:
+            today = datetime.date.today()
+            default_start = today + datetime.timedelta(days=(7 - today.weekday()))
+            default_end = default_start + datetime.timedelta(weeks=10)
+
         date_str = input(f"学期開始日 (YYYY-MM-DD) [Default: {default_start}]: ").strip()
         
         try:
@@ -347,8 +382,6 @@ class PatternBasedOptimizer:
             print("日付形式が不正です。デフォルトを使用します。")
             start_date = default_start
 
-        # 終了日の設定
-        default_end = start_date + datetime.timedelta(weeks=10)
         end_str = input(f"学期終了日 (YYYY-MM-DD) [Default: {default_end}]: ").strip()
         
         try:
@@ -710,24 +743,52 @@ def load_json_file(filepath: str) -> Dict:
         return {}
 
 def main():
-    SETTINGS_PATH = 'user_settings.json'
-    PERIOD_PATH = 'data/period_times.json'
-    
-    settings = load_json_file(SETTINGS_PATH)
-    if not settings:
-        print(f"設定ファイル({SETTINGS_PATH})が見つかりません。デフォルト値はありません。")
-        return
+    import argparse
+    parser = argparse.ArgumentParser(description="Course schedule optimizer.")
+    parser.add_argument(
+        'semester',
+        nargs='?',
+        help='Semester ID (e.g. 2026S). If omitted, uses legacy user_settings.json.',
+    )
+    args = parser.parse_args()
 
-    # ファイルパス取得
-    csv_path = settings.get("file_paths", {}).get("courses_csv", "2025W_normalized.csv")
-    pat_path = settings.get("file_paths", {}).get("patterns_json", "schedule_patterns.json")
-    
+    if args.semester:
+        from semester import SemesterContext, load_merged_settings
+        ctx = SemesterContext(args.semester)
+        settings = load_merged_settings(ctx)
+        csv_path = str(ctx.normalized_csv_path)
+        pat_path = str(ctx.patterns_json_path)
+        period_path = str(ctx.period_times_json_path())
+
+        if not ctx.normalized_csv_path.exists():
+            print(f"エラー: 正規化CSVが見つかりません: {ctx.normalized_csv_path}")
+            print(f"先に 'python src/main.py prepare {args.semester}' を実行してください。")
+            return
+        if not ctx.patterns_json_path.exists():
+            print(f"エラー: パターンJSONが見つかりません: {ctx.patterns_json_path}")
+            print(f"先に 'python src/main.py prepare {args.semester}' を実行してください。")
+            return
+
+        # 学期コンテキストをsettingsに埋め込む (ICS出力時のデフォルト日付用)
+        settings['_semester_context'] = ctx
+        print(f"学期: {ctx.semester_id} ({ctx.term_name})")
+    else:
+        # レガシーモード: user_settings.json を直接読む
+        SETTINGS_PATH = 'user_settings.json'
+        settings = load_json_file(SETTINGS_PATH)
+        if not settings:
+            print(f"エラー: --semester を指定するか、{SETTINGS_PATH} を配置してください。")
+            return
+        csv_path = settings.get("file_paths", {}).get("courses_csv", "data/2025W_normalized.csv")
+        pat_path = settings.get("file_paths", {}).get("patterns_json", "data/schedule_patterns.json")
+        period_path = 'data/period_times.json'
+
     all_courses = load_courses_from_csv(csv_path)
     patterns = load_json_file(pat_path)
-    period_data = load_json_file(PERIOD_PATH)
+    period_data = load_json_file(period_path)
     
     if not period_data:
-        print(f"警告: {PERIOD_PATH} が読み込めませんでした。カレンダー出力時に標準時間が不明になる可能性があります。")
+        print(f"警告: {period_path} が読み込めませんでした。カレンダー出力時に標準時間が不明になる可能性があります。")
 
     if all_courses and patterns:
         optimizer = PatternBasedOptimizer(all_courses, settings, patterns, period_data)

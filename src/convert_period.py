@@ -1,7 +1,9 @@
+import argparse
 import csv
 import json
 import re
 import sys
+from pathlib import Path
 
 # Windows環境での文字化け対策
 if sys.platform == 'win32':
@@ -110,4 +112,16 @@ def convert_csv_to_json(csv_path, output_path):
         return False
 
 if __name__ == "__main__":
-    convert_csv_to_json('data/period.csv', 'data/period_times.json')
+    parser = argparse.ArgumentParser(description="Convert period.csv to JSON format.")
+    parser.add_argument(
+        '--input',
+        default='data/period.csv',
+        help='path to period CSV (default: %(default)s)',
+    )
+    parser.add_argument(
+        '--output',
+        default='data/period_times.json',
+        help='path to write period times JSON (default: %(default)s)',
+    )
+    args = parser.parse_args()
+    convert_csv_to_json(args.input, args.output)

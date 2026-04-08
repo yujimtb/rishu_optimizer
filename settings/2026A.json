@@ -1,0 +1,25 @@
+{
+    "constraints": {
+        "mandatory_nos": [],
+        "excluded_nos": [],
+        "desired_nos": [],
+        "min_credits": 14,
+        "max_credits": 18,
+        "unavailable_slots": []
+    },
+    "optimizer_settings": {
+        "priority_subjects": [],
+        "level_priorities": {},
+        "course_level_constraints": {
+            "major_subjects": {
+                "codes": [],
+                "min_level": 0,
+                "max_level": 9999
+            },
+            "other_subjects": {
+                "min_level": 0,
+                "max_level": 9999
+            }
+        }
+    }
+}

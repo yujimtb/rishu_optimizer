@@ -1,0 +1,17 @@
+{
+    "constraints": {
+        "off_days": [
+            "土",
+            "日"
+        ]
+    },
+    "optimizer_settings": {
+        "temperature": 50,
+        "max_candidates": 10
+    },
+    "semester_defaults": {
+        "S": { "start_month": 4, "start_day": 7, "weeks": 10 },
+        "A": { "start_month": 9, "start_day": 1, "weeks": 10 },
+        "W": { "start_month": 12, "start_day": 1, "weeks": 10 }
+    }
+}

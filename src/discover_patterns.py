@@ -1,7 +1,9 @@
 import csv
 import json
-from collections import defaultdict
+import sys
 import os
+import argparse
+from collections import defaultdict
 
 def discover_and_save_patterns(csv_path: str, output_path: str):
     """
@@ -87,10 +89,33 @@ def discover_and_save_patterns(csv_path: str, output_path: str):
 
 
 if __name__ == '__main__':
-    # このスクリプトが存在するディレクトリの親のdataディレクトリを基準にする
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    
-    CSV_FILE_PATH = os.path.join(base_dir, 'data', '2025W_normalized.csv')
-    OUTPUT_JSON_PATH = os.path.join(base_dir, 'data', 'schedule_patterns.json')
-    
-    discover_and_save_patterns(CSV_FILE_PATH, OUTPUT_JSON_PATH)
+
+    parser = argparse.ArgumentParser(description="Discover unique schedule patterns from a normalized course CSV.")
+    parser.add_argument(
+        '--semester',
+        help='Semester ID (e.g. 2026S). Resolves paths automatically.',
+    )
+    parser.add_argument(
+        '--input',
+        help='path to normalized CSV (overrides --semester)',
+    )
+    parser.add_argument(
+        '--output',
+        help='path to write schedule pattern JSON (overrides --semester)',
+    )
+    args = parser.parse_args()
+
+    if args.semester:
+        from semester import SemesterContext
+        ctx = SemesterContext(args.semester)
+        csv_path = args.input or str(ctx.normalized_csv_path)
+        out_path = args.output or str(ctx.patterns_json_path)
+    elif args.input:
+        csv_path = args.input
+        out_path = args.output or os.path.join(base_dir, 'data', 'schedule_patterns.json')
+    else:
+        print("エラー: --semester または --input を指定してください。", file=sys.stderr)
+        sys.exit(1)
+
+    discover_and_save_patterns(csv_path, out_path)

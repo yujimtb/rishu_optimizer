@@ -170,19 +170,37 @@ def create_ics_content(courses: List[Dict], period_times: Dict[int, Tuple[str, s
 
 def main():
     parser = argparse.ArgumentParser(description="Generate iCalendar (.ics) file from course list.")
+    parser.add_argument("semester", nargs='?', help="Semester ID (e.g. 2026S). If omitted, uses legacy settings.")
     parser.add_argument("--courses", nargs='+', help="List of course numbers to export (e.g. ELA060 PHY261)")
-    parser.add_argument("--output", default="my_schedule.ics", help="Output filename")
-    parser.add_argument("--start-date", help="Term start date (YYYY-MM-DD). Default: next Monday")
+    parser.add_argument("--output", help="Output filename")
+    parser.add_argument("--start-date", help="Term start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", help="Term end date (YYYY-MM-DD)")
+    parser.add_argument("--csv", help="Normalized course CSV path (overrides semester auto-resolve)")
+    parser.add_argument("--period-csv", help="Period definition CSV path. Defaults to data/period.csv")
     
     args = parser.parse_args()
     
     # 設定読み込み
     settings = {}
-    try:
-        with open('user_settings.json', 'r', encoding='utf-8') as f:
-            settings = json.load(f)
-    except:
-        pass
+    ctx = None
+
+    if args.semester:
+        from semester import SemesterContext, load_merged_settings
+        ctx = SemesterContext(args.semester)
+        settings = load_merged_settings(ctx)
+        normalized_csv = args.csv or str(ctx.normalized_csv_path)
+        period_csv = args.period_csv or str(ctx.period_csv_path())
+        default_output = args.output or f"output/{ctx.semester_id}_schedule.ics"
+    else:
+        try:
+            with open('user_settings.json', 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+        except:
+            pass
+        file_paths = settings.get('file_paths', {})
+        normalized_csv = args.csv or file_paths.get('courses_csv', 'data/2025W_normalized.csv')
+        period_csv = args.period_csv or file_paths.get('period_csv', 'data/period.csv')
+        default_output = args.output or "my_schedule.ics"
         
     # 対象科目の決定
     target_nos = []
@@ -194,27 +212,41 @@ def main():
         
     if not target_nos:
         print("エラー: エクスポートする科目が指定されていません。")
-        print("引数で指定するか (--courses AAA101 BBB202)、user_settings.json の mandatory_nos に設定してください。")
+        print("引数で指定するか (--courses AAA101 BBB202)、設定ファイルの mandatory_nos に設定してください。")
         return
 
-    # 開始日の決定
+    # 開始日・終了日の決定
     if args.start_date:
         try:
             start_date = datetime.datetime.strptime(args.start_date, "%Y-%m-%d").date()
         except ValueError:
             print("日付形式エラー: YYYY-MM-DD で指定してください")
             return
+    elif ctx:
+        start_date, _ = ctx.default_term_dates()
+        print(f"学期デフォルト開始日を使用します: {start_date}")
     else:
-        # デフォルト: 今日の次の月曜日
         today = datetime.date.today()
         start_date = today + datetime.timedelta(days=(7 - today.weekday()))
         print(f"開始日が指定されていないため、次の月曜日 ({start_date}) を基準にします。")
 
+    if args.end_date:
+        try:
+            term_end = datetime.datetime.strptime(args.end_date, "%Y-%m-%d").date()
+        except ValueError:
+            print("終了日の日付形式エラー: YYYY-MM-DD で指定してください")
+            return
+    elif ctx:
+        _, term_end = ctx.default_term_dates()
+    else:
+        term_end = start_date + datetime.timedelta(weeks=10)
+
     print(f"対象科目: {', '.join(target_nos)}")
+    print(f"期間: {start_date} 〜 {term_end}")
     print("データ読み込み中...")
     
-    period_times = load_period_times('period.csv')
-    course_data = get_course_info('2025W_normalized.csv', target_nos)
+    period_times = load_period_times(period_csv)
+    course_data = get_course_info(normalized_csv, target_nos)
     
     if not course_data:
         print("警告: 指定された科目のデータが見つかりませんでした。")
@@ -224,10 +256,14 @@ def main():
     
     ics_content = create_ics_content(course_data, period_times, start_date)
     
-    with open(args.output, 'w', encoding='utf-8', newline='\n') as f:
+    # 出力ディレクトリの作成
+    out_path = Path(default_output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(str(out_path), 'w', encoding='utf-8', newline='\n') as f:
         f.write(ics_content)
         
-    print(f"完了: '{args.output}' が作成されました。カレンダーアプリにインポートできます。")
+    print(f"完了: '{default_output}' が作成されました。カレンダーアプリにインポートできます。")
 
 if __name__ == "__main__":
     main()

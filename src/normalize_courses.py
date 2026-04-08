@@ -1,5 +1,6 @@
 import argparse
 import csv
+import sys
 from pathlib import Path
 
 
@@ -63,7 +64,11 @@ def parse_credits_links(cell: str) -> tuple[str, str]:
     return credits, links
 
 
-def normalize(input_path: Path, output_path: Path) -> None:
+def normalize(input_path: Path, output_path: Path) -> list[str]:
+    """正規化CSVを生成し、警告メッセージのリストを返す。"""
+    warnings: list[str] = []
+    seen_nos: set[str] = set()
+
     with input_path.open(encoding="utf-8-sig", newline="") as f_in, output_path.open(
         "w", encoding="utf-8", newline=""
     ) as f_out:
@@ -102,6 +107,22 @@ def normalize(input_path: Path, output_path: Path) -> None:
             instructor = row[6].strip()
             credits, links = parse_credits_links(row[7])
 
+            # バリデーション
+            if course_no in seen_nos:
+                warnings.append(f"重複CourseNo: {course_no}")
+            seen_nos.add(course_no)
+
+            try:
+                credits_int = int(credits)
+                if credits_int < 0:
+                    warnings.append(f"負のCredits: {course_no} ({credits})")
+            except ValueError:
+                if credits:
+                    warnings.append(f"不正なCredits値: {course_no} ({credits})")
+
+            if not schedule:
+                warnings.append(f"Scheduleが空: {course_no}")
+
             writer.writerow(
                 [
                     course_no,
@@ -117,22 +138,52 @@ def normalize(input_path: Path, output_path: Path) -> None:
                 ]
             )
 
+    return warnings
+
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Normalize 2025W course CSV.")
+    parser = argparse.ArgumentParser(description="Normalize course CSV.")
+    parser.add_argument(
+        "--semester",
+        help="Semester ID (e.g. 2026S). Resolves paths automatically.",
+    )
     parser.add_argument(
         "--input",
-        default="data/2025W - Sheet1.csv",
-        help="path to original CSV (default: %(default)s)",
+        help="path to original CSV (overrides --semester)",
     )
     parser.add_argument(
         "--output",
-        default="data/2025W_normalized.csv",
-        help="path to write normalized CSV (default: %(default)s)",
+        help="path to write normalized CSV (overrides --semester)",
     )
     args = parser.parse_args()
 
-    normalize(Path(args.input), Path(args.output))
+    if args.semester:
+        from semester import SemesterContext
+        ctx = SemesterContext(args.semester)
+        input_path = Path(args.input) if args.input else ctx.raw_csv_path
+        output_path = Path(args.output) if args.output else ctx.normalized_csv_path
+    elif args.input:
+        input_path = Path(args.input)
+        output_path = Path(args.output) if args.output else input_path.with_name(
+            input_path.stem.split(" ")[0] + "_normalized.csv"
+        )
+    else:
+        print("エラー: --semester または --input を指定してください。", file=sys.stderr)
+        sys.exit(1)
+
+    if not input_path.exists():
+        print(f"エラー: 入力ファイルが見つかりません: {input_path}", file=sys.stderr)
+        sys.exit(1)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    warnings = normalize(input_path, output_path)
+
+    if warnings:
+        print(f"\n⚠ {len(warnings)} 件の警告:")
+        for w in warnings:
+            print(f"  - {w}")
+
+    print(f"\n正規化完了: {output_path}")
 
 
 if __name__ == "__main__":
