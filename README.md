@@ -161,8 +161,10 @@ python src/main.py list
 - `q`: 終了します。
 
 **編集モード:**
-- `add <科目番号>`: 科目を追加します（競合チェック付き）。
-- `rm <科目番号>`: 科目を削除します。
+- `add <科目番号>`: 科目を追加します。表示中の時間割と競合する科目があれば自動で入れ替えます。同じ科目番号に複数セクションがある場合は選択プロンプトが表示されます。
+- `add <科目番号#番号>`: セクションを直接指定して追加します。例: `add GEX001#2`。同じ科目番号の既存セクションや競合科目があれば自動で入れ替えます。
+- `rm <科目番号>` / `del <科目番号>`: 科目を削除します。同じ科目番号の候補が複数ある場合は選択プロンプトが表示されます。
+- `rm <科目番号#番号>` / `del <科目番号#番号>`: セクションを直接指定して削除します。例: `del GEX001#2`
 - `list`: 追加可能な科目候補を表示します。
 - `save`: 現在の時間割を `.ics` ファイルに出力します。学期の開始日・終了日は自動算出され、Enterで確定できます。
 - `back`: 候補選択画面に戻ります。
@@ -177,8 +179,6 @@ python src/discover_patterns.py --semester 2026S
 python src/convert_period.py --input data/period.csv --output data/period_times.json
 python src/optimize_courses.py 2026S
 python src/export_calendar.py 2026S --courses ELA060 PHY261
-```
-保存しました: my_schedule.ics
 ```
 
 ## トラブルシューティング

@@ -4,7 +4,7 @@ import sys
 import random
 import json
 import datetime
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import List, Set, Tuple, Dict, Any, Optional
 
@@ -14,6 +14,18 @@ from typing import List, Set, Tuple, Dict, Any, Optional
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
+
+
+PICK_CANCELLED = object()
+
+
+def normalize_schedule_key(schedule_str: str) -> str:
+    parts = []
+    for part in re.split(r'[;,]', schedule_str or ''):
+        cleaned = part.strip().replace(' ', '')
+        if cleaned:
+            parts.append(cleaned)
+    return ','.join(parts)
 
 # --- データ構造定義 ---
 
@@ -30,16 +42,35 @@ class Course:
     instructor: str
     credits: int
     link: str
+    variant_index: int = 1
+    variant_total: int = 1
     # schedule: Set of (Day, Period, IsException)
     schedule: Set[Tuple[str, int, bool]] = field(default_factory=set, init=False)
     subject: str = field(default="", init=False)
     level: int = field(default=0, init=False)
+    schedule_key: str = field(default="", init=False)
 
     def __post_init__(self):
         self.parse_schedule()
         # ICS検索用にフラグは保持しつつ、表示用文字列からは*と()を削除
         self.schedule_str = self.schedule_str.replace('*', '').replace('(', '').replace(')', '')
+        self.schedule_key = normalize_schedule_key(self.schedule_str)
         self.parse_course_no()
+
+    @property
+    def selector(self) -> str:
+        if self.variant_total <= 1:
+            return self.no
+        return f"{self.no}#{self.variant_index}"
+
+    @property
+    def has_schedule(self) -> bool:
+        return bool(self.schedule)
+
+    def display_summary(self) -> str:
+        schedule = self.schedule_str or "(時間割未設定)"
+        instructor = self.instructor or "STAFF"
+        return f"[{self.selector}] {self.title_ja} ({self.credits}) {schedule} / {instructor}"
 
     def parse_schedule(self):
         """ 
@@ -91,7 +122,10 @@ class PatternBasedOptimizer:
         self.settings = settings
         self.patterns = patterns
         self.period_data = period_data # period_times.json
-        self.course_map = {c.no: c for c in all_courses}
+        self.courses_by_no = defaultdict(list)
+        for course in all_courses:
+            self.courses_by_no[course.no].append(course)
+        self.course_map = {c.selector: c for c in all_courses}
         self.course_scores = {}
 
         # 設定値を展開
@@ -140,7 +174,65 @@ class PatternBasedOptimizer:
                     self.schedule_to_courses[(d, p)].append(course)
 
     def _get_courses_by_nos(self, nos: Set[str]) -> List[Course]:
-        return [self.course_map[no] for no in nos if no in self.course_map]
+        selected = []
+        for no in nos:
+            variants = self.courses_by_no.get(no, [])
+            if not variants:
+                continue
+            selected.append(self._select_default_variant(variants))
+        return selected
+
+    @staticmethod
+    def _variant_sort_key(course: Course):
+        return (
+            0 if course.has_schedule else 1,
+            0 if course.credits > 0 else 1,
+            course.schedule_str,
+            course.instructor,
+            course.variant_index,
+        )
+
+    def _select_default_variant(self, variants: List[Course]) -> Course:
+        return sorted(variants, key=self._variant_sort_key)[0]
+
+    @staticmethod
+    def _sort_courses_for_display(courses: List[Course]) -> List[Course]:
+        return sorted(courses, key=lambda c: (c.no, c.variant_index, c.schedule_str, c.instructor))
+
+    def _resolve_course_token(self, token: str, pool: List[Course]) -> List[Course]:
+        token = token.upper()
+        exact = [course for course in pool if course.selector.upper() == token]
+        if exact:
+            return exact
+        return [course for course in pool if course.no == token]
+
+    def _prompt_variant_selection(self, matches: List[Course], action_label: str):
+        sorted_matches = self._sort_courses_for_display(matches)
+        print(f"同一コース番号の候補が複数あります。{action_label}する科目を選択してください:")
+        for idx, course in enumerate(sorted_matches, 1):
+            print(f"  {idx}. {course.display_summary()}")
+        print("  0. キャンセル")
+
+        while True:
+            choice = input("> ").strip()
+            if choice == '0' or not choice:
+                return PICK_CANCELLED
+            try:
+                selected_idx = int(choice) - 1
+            except ValueError:
+                print("番号を入力してください。")
+                continue
+            if 0 <= selected_idx < len(sorted_matches):
+                return sorted_matches[selected_idx]
+            print("無効な番号です。")
+
+    def _pick_course_from_pool(self, token: str, pool: List[Course], action_label: str):
+        matches = self._resolve_course_token(token, pool)
+        if not matches:
+            return None
+        if len(matches) == 1:
+            return matches[0]
+        return self._prompt_variant_selection(matches, action_label)
 
     def run(self):
         print("最適化プロセスを開始します...")
@@ -216,16 +308,26 @@ class PatternBasedOptimizer:
             choice = input("> ").strip().lower()
             if choice == 'q':
                 break
+
+            if choice.isdigit():
+                choice = f"select {choice}"
             
             if choice.startswith('select '):
+                parts = choice.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("番号を指定してください。例: select 1")
+                    continue
                 try:
-                    idx = int(choice.split()[1]) - 1
+                    idx = int(parts[1]) - 1
                     if 0 <= idx < len(candidates):
                         self._edit_candidate(candidates[idx])
                     else:
                         print("無効な番号です。")
                 except ValueError:
                     print("番号を指定してください。例: select 1")
+                continue
+
+            print("無効なコマンドです。例: select 1 / q")
 
     def _edit_candidate(self, timetable: List[Course]):
         """個別の候補編集ループ"""
@@ -239,50 +341,55 @@ class PatternBasedOptimizer:
             
             print(f"合計単位: {total_credits}")
             for c in sorted_courses:
-                print(f"  [{c.no}] {c.title_ja} ({c.credits}) {c.schedule_str}")
+                print(f"  {c.display_summary()}")
             
             print("\n【編集コマンド】")
-            print("  add <CourseNo> : 科目を追加")
-            print("  del <CourseNo> : 科目を削除") # User might use del or rm
+            print("  add <CourseNo or CourseNo#n> : 科目を追加")
+            print("  del <CourseNo or CourseNo#n> : 科目を削除") # User might use del or rm
             print("  list           : 追加可能な科目候補を表示")
             print("  save           : ICSファイルに出力して終了")
             print("  back           : メニューに戻る")
             
             cmd = input("(edit) > ").strip()
+            cmd_lower = cmd.lower()
             
-            if cmd == 'list':
+            if cmd_lower == 'list':
                 print("\n--- 科目別入れ替え候補 ---")
-                
-                # 候補プール（現在の科目以外で有効なもの）
-                valid_pool = [c for c in self.all_courses 
-                              if c.no not in {x.no for x in current_courses} 
-                              and self._is_course_valid(c)]
+                current_selectors = {course.selector for course in current_courses}
+                current_nos = {course.no for course in current_courses}
+                valid_pool = [
+                    course for course in self.all_courses
+                    if course.selector not in current_selectors and self._is_course_valid(course)
+                ]
                 
                 # 1. 既存の各科目に対する入れ替え候補を表示
-                sorted_current = sorted(current_courses, key=lambda x: x.no)
+                sorted_current = self._sort_courses_for_display(current_courses)
                 
                 for curr in sorted_current:
                     # 必修科目は入れ替え対象外なので表示しない
                     if curr.no in self.mandatory_nos:
                         continue
                         
-                    print(f"[{curr.no}] {curr.title_ja} ({curr.credits}) {curr.schedule_str}")
+                    print(curr.display_summary())
                     
                     # curr と入れ替え可能な候補を探す
                     # 条件: curr とは競合するが、それ以外の現在の科目とは競合しない
-                    rest = [c for c in current_courses if c.no != curr.no]
+                    rest = [course for course in current_courses if course.selector != curr.selector]
+                    rest_nos = {course.no for course in rest}
                     
                     swaps = []
                     for cand in valid_pool:
-                        if cand.conflicts_with(curr):
+                        if cand.no in rest_nos:
+                            continue
+                        if cand.no == curr.no or cand.conflicts_with(curr):
                             # 他の科目とも競合していないかチェック
                             if not any(cand.conflicts_with(r) for r in rest):
                                 swaps.append(cand)
                     
-                    swaps.sort(key=lambda x: x.no)
+                    swaps = self._sort_courses_for_display(swaps)
                     if swaps:
                         for s in swaps:
-                            print(f"  - [{s.no}] {s.title_ja} ({s.credits}) {s.schedule_str}")
+                            print(f"  - {s.display_summary()}")
                     else:
                         print("  - (入れ替え候補なし)")
 
@@ -290,55 +397,96 @@ class PatternBasedOptimizer:
                 print("\n--- 新規追加可能 (競合なし) ---")
                 addable = []
                 for cand in valid_pool:
+                    if cand.no in current_nos:
+                        continue
                     if not any(cand.conflicts_with(c) for c in current_courses):
                         addable.append(cand)
                 
-                addable.sort(key=lambda x: x.no)
+                addable = self._sort_courses_for_display(addable)
                 if addable:
                     for a in addable:
-                        print(f"  [{a.no}] {a.title_ja} ({a.credits}) {a.schedule_str}")
+                        print(f"  {a.display_summary()}")
                     print(f"  (計 {len(addable)} 件)")
                 else:
                     print("  (なし)")
                 
                 continue
             
-            if cmd == 'back':
+            if cmd_lower == 'back':
                 break
             
-            if cmd == 'save':
+            if cmd_lower == 'save':
                 self._export_to_ics(current_courses)
                 return # 保存したらメニューに戻る（あるいは終了）
 
-            if cmd.startswith('rm '):
-                target_no = cmd.split()[1].upper()
-                original_len = len(current_courses)
-                current_courses = [c for c in current_courses if c.no != target_no]
-                if len(current_courses) < original_len:
-                    print(f"削除しました: {target_no}")
-                else:
-                    print(f"見つかりませんでした: {target_no}")
+            if cmd_lower in {'add', 'rm', 'del'}:
+                print("コース番号を指定してください。例: add GEX001 / del GEX001#2")
+                continue
 
-            elif cmd.startswith('add '):
-                target_no = cmd.split()[1].upper()
-                if target_no in {c.no for c in current_courses}:
-                    print("既に追加されています。")
+            if cmd_lower.startswith('rm ') or cmd_lower.startswith('del '):
+                parts = cmd.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("コース番号を指定してください。例: del GEX001#2")
                     continue
-                
-                new_course = self.course_map.get(target_no)
+                target_no = parts[1].upper()
+                selected_course = self._pick_course_from_pool(target_no, current_courses, "削除")
+                if selected_course is PICK_CANCELLED:
+                    print("削除をキャンセルしました。")
+                    continue
+                if not selected_course:
+                    print(f"見つかりませんでした: {target_no}")
+                    continue
+                current_courses = [c for c in current_courses if c.selector != selected_course.selector]
+                print(f"削除しました: {selected_course.selector}")
+
+            elif cmd_lower.startswith('add '):
+                parts = cmd.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("コース番号を指定してください。例: add GEX001 / add GEX001#2")
+                    continue
+                target_no = parts[1].upper()
+                current_selectors = {course.selector for course in current_courses}
+
+                add_pool = [
+                    course for course in self.all_courses
+                    if self._is_course_valid(course)
+                    and course.selector not in current_selectors
+                ]
+                new_course = self._pick_course_from_pool(target_no, add_pool, "追加")
+                if new_course is PICK_CANCELLED:
+                    print("追加をキャンセルしました。")
+                    continue
                 if not new_course:
                     print(f"コースが見つかりません: {target_no}")
                     continue
                 
-                # 競合チェック
-                conflicts = [c for c in current_courses if c.conflicts_with(new_course)]
-                if conflicts:
-                    names = ", ".join([c.no for c in conflicts])
-                    print(f"競合しています: {names}")
+                # 競合している科目、または同じコース番号の別セクションを自動置換する
+                replaced_courses = [
+                    course for course in current_courses
+                    if course.conflicts_with(new_course) or course.no == new_course.no
+                ]
+                blocking_mandatory = [
+                    course for course in replaced_courses
+                    if course.no in self.mandatory_nos and course.no != new_course.no
+                ]
+                if blocking_mandatory:
+                    names = ", ".join(course.selector for course in blocking_mandatory)
+                    print(f"必修科目と競合するため追加できません: {names}")
                     continue
-                
+
+                if replaced_courses:
+                    current_courses = [
+                        course for course in current_courses
+                        if course.selector not in {item.selector for item in replaced_courses}
+                    ]
                 current_courses.append(new_course)
-                print(f"追加しました: {new_course.title_ja}")
+                if replaced_courses:
+                    replaced_names = ", ".join(course.selector for course in self._sort_courses_for_display(replaced_courses))
+                    print(f"入れ替えました: {replaced_names} -> {new_course.selector}")
+                else:
+                    print(f"追加しました: {new_course.selector}")
+            else:
+                print("無効なコマンドです。add / del / rm / list / save / back を使ってください。")
 
     def _export_to_ics(self, timetable: List[Course]):
         """ICS出力処理"""
@@ -517,7 +665,19 @@ class PatternBasedOptimizer:
     def _score_patterns(self):
         self.pattern_scores = {}
         for key, data in self.patterns.items():
-            courses = [self.course_map[no] for no in data['courses'] if no in self.course_map and self._is_course_valid(self.course_map[no])]
+            pattern_schedule_key = normalize_schedule_key(key)
+            courses = []
+            seen_selectors = set()
+            for no in data['courses']:
+                for course in self.courses_by_no.get(no, []):
+                    if course.selector in seen_selectors:
+                        continue
+                    if course.schedule_key != pattern_schedule_key:
+                        continue
+                    if not self._is_course_valid(course):
+                        continue
+                    courses.append(course)
+                    seen_selectors.add(course.selector)
             courses = self._prepare_candidates(courses)
             best = []
             for c in courses:
@@ -656,9 +816,9 @@ class PatternBasedOptimizer:
             if not timetable: continue
             print("\n" + "="*50 + f"\n候補 #{idx}\n" + "="*50)
             print(f"合計単位数: {sum(c.credits for c in timetable)}")
-            sorted_t = sorted(timetable, key=lambda c: (c.subject, c.no))
+            sorted_t = sorted(timetable, key=lambda c: (c.subject, c.no, c.variant_index))
             for c in sorted_t:
-                print(f"  - [{c.no}] {c.title_ja.ljust(20)} {c.schedule_str}")
+                print(f"  - [{c.selector}] {c.title_ja.ljust(20)} {c.schedule_str}")
                 
                 # 必修科目は入れ替え候補を表示しない
                 if c.no in self.mandatory_nos:
@@ -677,15 +837,18 @@ class PatternBasedOptimizer:
                 
                 swaps = []
                 # existing set for fast lookup
-                existing_nos = {x.no for x in timetable}
+                existing_selectors = {x.selector for x in timetable}
+                rest_nos = {x.no for x in rest_of_schedule}
                 
                 for cand in self.all_courses:
-                    if cand.no == c.no: continue
-                    if cand.no in existing_nos: continue
+                    if cand.selector in existing_selectors:
+                        continue
+                    if cand.no in rest_nos:
+                        continue
                     if not self._is_course_valid(cand): continue
                     
                     # Must conflict with 'c' (the valid alternative logic)
-                    if cand.conflicts_with(c):
+                    if cand.no == c.no or cand.conflicts_with(c):
                         # But must fit with everything else
                         is_compatible = True
                         for r in rest_of_schedule:
@@ -698,9 +861,9 @@ class PatternBasedOptimizer:
 
                 if swaps:
                     # Sort by score or number?
-                    swaps.sort(key=lambda x: x.no)
+                    swaps = self._sort_courses_for_display(swaps)
                     display_swaps = swaps[:5] # Limit to 5
-                    swap_str = ", ".join([f"{s.no}({s.credits})" for s in display_swaps])
+                    swap_str = ", ".join([f"{s.selector}({s.credits})" for s in display_swaps])
                     if len(swaps) > 5:
                         swap_str += "..."
                     print(f"    (入れ替え候補: {swap_str})")
@@ -728,9 +891,31 @@ def load_courses_from_csv(filepath: str) -> List[Course]:
         with open(filepath, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             next(reader)
-            return [Course(no=r[0], lang=r[1], title_en=r[2], title_ja=r[3], schedule_str=r[4],
-                           classroom=r[5], mode=r[6], instructor=r[7], credits=int(r[8]) if r[8].isdigit() else 0,
-                           link=r[9] if len(r) > 9 else "") for r in reader if len(r) >= 9]
+            rows = [row for row in reader if len(row) >= 9]
+
+        total_by_no = Counter(row[0] for row in rows)
+        current_index = defaultdict(int)
+        courses = []
+        for row in rows:
+            course_no = row[0]
+            current_index[course_no] += 1
+            courses.append(
+                Course(
+                    no=course_no,
+                    lang=row[1],
+                    title_en=row[2],
+                    title_ja=row[3],
+                    schedule_str=row[4],
+                    classroom=row[5],
+                    mode=row[6],
+                    instructor=row[7],
+                    credits=int(row[8]) if row[8].isdigit() else 0,
+                    link=row[9] if len(row) > 9 else "",
+                    variant_index=current_index[course_no],
+                    variant_total=total_by_no[course_no],
+                )
+            )
+        return courses
     except Exception as e:
         print(f"CSV読み込みエラー: {e}")
     return []

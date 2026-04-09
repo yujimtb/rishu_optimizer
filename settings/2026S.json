@@ -13,8 +13,8 @@
             "PHY242"
         ],
         "desired_nos": [],
-        "min_credits": 10,
-        "max_credits": 18,
+        "min_credits": 12,
+        "max_credits": 16,
         "unavailable_slots": [
             { "day": "月", "period": 1 },
             { "day": "月", "period": 5 },

@@ -113,7 +113,12 @@ def parse_schedule_string(sched_str: str) -> List[Tuple[str, int]]:
                 pass
     return slots
 
-def create_ics_content(courses: List[Dict], period_times: Dict[int, Tuple[str, str]], start_date: datetime.date) -> str:
+def create_ics_content(
+    courses: List[Dict],
+    period_times: Dict[int, Tuple[str, str]],
+    start_date: datetime.date,
+    term_end: datetime.date,
+) -> str:
     """iCalendar形式の文字列を生成"""
     
     # 学期開始日（月曜日）を基準にする
@@ -133,8 +138,6 @@ def create_ics_content(courses: List[Dict], period_times: Dict[int, Tuple[str, s
     # 基準日が何曜日か (0=Mon, 6=Sun)
     base_weekday = start_date.weekday()
     
-    # 学期終了日（仮: 開始から10週間後）
-    term_end = start_date + datetime.timedelta(weeks=10)
     end_date_str = term_end.strftime("%Y%m%dT235959")
     
     for course in courses:
@@ -254,7 +257,7 @@ def main():
         
     print(f"{len(course_data)} 件の授業データが見つかりました。ICSファイルを生成します...")
     
-    ics_content = create_ics_content(course_data, period_times, start_date)
+    ics_content = create_ics_content(course_data, period_times, start_date, term_end)
     
     # 出力ディレクトリの作成
     out_path = Path(default_output)
